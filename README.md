@@ -1,2 +1,2 @@
-# Efficient Alignment with Pseudo Texts for Few-Shot Audio-Visual Learning
-Codes and datasets for the paper "Efficient Alignment with Pseudo Texts for Few-Shot Audio-Visual Learning"
+# Semantic Modulated Prompting for Few-Shot Audio-Visual Classification
+Codes and datasets for the paper "Semantic Modulated Prompting for Few-Shot Audio-Visual Classification"
