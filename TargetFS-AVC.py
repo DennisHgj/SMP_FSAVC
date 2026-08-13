@@ -1,217 +1,264 @@
+"""N-way K-shot target-set experiments for SMP."""
+
 import argparse
-import os.path
+import os
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 
-from dataloader.av_FSL import Dataset_AVC
-from models.E_AVLmodel import E_AVLmodel
-from utils.dataform import FSL_sample_formatting
-from utils.epoch_fucntion import train_one_epoch, val_one_epoch
-from utils.functions import setup_seed, collate_fn_caption, get_class_map
-from utils.prototype_util import calculate_prototype
-
-os.environ["TOKENIZERS_PARALLELISM"] = 'false'
-
-
-def parse_options():
-    parser = argparse.ArgumentParser(description="E-AVL")
-    parser.add_argument('--dataset', type=str, default='AVE', help='dataset name', choices=['AVE', 'VGG', 'Kinetics'])
-    parser.add_argument('--gpu_id', type=str, default="cuda:1", help='the gpu id')  # todo
-    parser.add_argument('--lr', type=float, default=3e-4, help='initial learning rate')  # default=0.001
-    parser.add_argument('--batch_size', type=int, default=8, help='batchsize')
-    parser.add_argument('--num_epochs', type=int, default=30, help='training epochs for each sample test')
-    parser.add_argument('--seed', type=int, default=42, help='random seed')
-    parser.add_argument('--num_workers', default=4, type=int, help='num of workers of dataloader')
-    # T-PR
-    parser.add_argument('--modulation', default='T-PR', type=str)
-    parser.add_argument('--alpha', default=1.0, type=float, help='alpha in T-PR')
-    parser.add_argument('--embed_dim', default=768, type=int, help='embed_dim of encoder')
-    # T-AVeL
-    parser.add_argument('--T_AVeL_dim', type=int, default=16, help='dimension of the T-AVeL')
-    parser.add_argument('--T_AVeL_loc', type=str, default='2', help='location of the T-AVeL')
-    parser.add_argument('--latent_attention_loc', type=str, default='cma_1cma_2', help='location of the latent attention')
-    # Block
-    parser.add_argument('--begin_layer', type=int, default=4, help='begin layer of the fusion block')
-
-    # Path
-    parser.add_argument('--FS_AVC_root', type=str,
-                        default='',help='dir of target fsavc csv files')
-    parser.add_argument('--audio_dir', type=str, default='',
-                        help='dir of audio files')
-    parser.add_argument('--visual_dir', type=str, default='',
-                        help='dir of rgb frames')
-    parser.add_argument('--pretrained_model', type=str,
-                        default='./AVE_E-AVL.pt',help="path to pretrained ckpt")  # todo
-
-    parser.add_argument('--model_name', type=str, default='E-AVL_1shot',help='experiment name')  # todo
-    # FS_AVC settings
-    parser.add_argument('--N_way', type=int, default=5)
-    parser.add_argument('--K_shot', type=int, default=1)
-    parser.add_argument('--total_rounds', type=int, default=5, help='total rounds of sample N-way from dataset')
-    parser.add_argument('--sample_times', type=int, default=5, help='total times of sample K-shot from selected classes')
-
-    opts = parser.parse_args()
-    setup_seed(opts.seed)
-    opts.device = torch.device(opts.gpu_id)
-    return opts
+from dataloader import AudioVisualDataset
+from models import SMPModel
+from utils.common import (
+    collate_audio_visual,
+    resolve_device,
+    save_json,
+    seed_everything,
+)
+from utils.prototypes import estimate_prototypes
+from utils.sampling import (
+    read_annotations,
+    sample_classes,
+    sample_few_shot_task,
+)
+from utils.training import evaluate, train_one_epoch
 
 
-############################################################################################################################################################################################################
-############################################################################################################################################################################################################
-def train_one_sample(args, selected_class_train_df, selected_class_test_df, pretrained_paras, class_map):
-    model = E_AVLmodel(num_classes=args.N_way, T_AVeL_dim=args.T_AVeL_dim,
-                       latent_attention_loc=args.latent_attention_loc, T_AVeL_loc=args.T_AVeL_loc,
-                       begin_layer=args.begin_layer)
-    collate = collate_fn_caption
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Fine-tune and evaluate SMP on N-way K-shot FS-AVC tasks."
+    )
+    parser.add_argument(
+        "--dataset", choices=("AVE", "VGGSound100", "Kinetics-Sounds"), default="AVE"
+    )
+    parser.add_argument("--few-shot-root", type=Path, required=True)
+    parser.add_argument("--audio-dir", type=Path, required=True)
+    parser.add_argument("--visual-dir", type=Path, required=True)
+    parser.add_argument("--pretrained-model", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, default=Path("results"))
+    parser.add_argument("--experiment-name", default="smp_5way_1shot")
 
-    if args.pretrained_model != '':
-        info = model.load_state_dict(pretrained_paras, strict=False)
-        print(info)
+    parser.add_argument("--n-way", type=int, default=5)
+    parser.add_argument("--k-shot", type=int, default=1)
+    parser.add_argument("--class-rounds", type=int, default=5)
+    parser.add_argument("--support-draws", type=int, default=5)
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--num-workers", type=int, default=8)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--alpha", type=float, default=1.0)
+    parser.add_argument("--prototype-momentum", type=float, default=0.0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", default="cuda:0")
 
-    model.to(args.device)
-    FSL_train_dataset = Dataset_AVC(selected_class_train_df, args.audio_dir, args.visual_dir)
-    FSL_test_dataset = Dataset_AVC(selected_class_test_df, args.audio_dir, args.visual_dir)
-
-    train_loader = DataLoader(FSL_train_dataset, batch_size=args.batch_size, collate_fn=collate,
-                              shuffle=True, num_workers=args.num_workers)
-    test_loader = DataLoader(FSL_test_dataset, batch_size=args.batch_size, collate_fn=collate,
-                             shuffle=False, num_workers=args.num_workers)
-
-    # Optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    # Loss Function
-    loss_fn = nn.CrossEntropyLoss()
-    if args.modulation == 'T-PR':
-        audio_proto, visual_proto = calculate_prototype(args, model, train_loader, class_map=class_map, FSL=True)
-    else:
-        audio_proto, visual_proto = None, None
-
-    train_acc_list = []
-    val_acc_list = []
-    epoch_record = {}
-
-    for epoch in range(args.num_epochs):
-        ###Training
-
-        loss, acc = train_one_epoch(args, train_loader, model, optimizer, loss_fn, audio_proto,
-                                                visual_proto, class_map=class_map)
-        if args.modulation == 'T-PR':
-            audio_proto, visual_proto = calculate_prototype(args, model, train_loader, class_map=class_map, FSL=True)
-        ###Test
-        val_res = val_one_epoch(args, test_loader, model, loss_fn, class_map=class_map)
-        train_acc_list.append(acc)
-        val_acc_list.append(val_res[1])
-
-    best_train_acc = np.max(np.asarray(train_acc_list))
-    best_val_acc = np.max(np.asarray(val_acc_list))
-
-    epoch_record['train_acc'] = np.asarray(train_acc_list)
-    epoch_record['val_acc'] = np.asarray(val_acc_list)
-
-    return best_train_acc, best_val_acc, epoch_record
+    parser.add_argument("--adapter-dim", type=int, default=16)
+    parser.add_argument("--begin-layer", type=int, default=4)
+    parser.add_argument(
+        "--adapter-location", choices=("attention", "mlp", "both"), default="mlp"
+    )
+    parser.add_argument("--attention-locations", default="before,after")
+    parser.add_argument(
+        "--tuning", choices=("none", "norm", "bias", "all"), default="bias"
+    )
+    parser.add_argument(
+        "--vit-model", default="vit_base_patch16_224.augreg_in21k"
+    )
+    parser.add_argument("--vit-checkpoint", default=None)
+    parser.add_argument("--text-model", default="openai/clip-vit-large-patch14")
+    args = parser.parse_args()
+    if args.experiment_name == "smp_5way_1shot":
+        args.experiment_name = f"smp_{args.n_way}way_{args.k_shot}shot"
+    return args
 
 
-def draw_plot(args, model_record):
-    writer = SummaryWriter(comment=args.model_name)
-    # print(model_record)
-
-    np.save(os.path.join(writer.get_logdir(), 'model_record.npy'), model_record)
-
-    all_results = {}
-    all_results['train_acc'] = np.zeros((args.total_rounds * args.sample_times, args.num_epochs))
-    all_results['val_acc'] = np.zeros((args.total_rounds * args.sample_times, args.num_epochs))
-
-    row = 0
-    for sample_class, sample_record in model_record.items():
-        for sample_times, epoch_record in sample_record.items():
-            for key, value in epoch_record.items():
-                all_results[key][row] = value
-            row += 1
-
-    for i in range(args.num_epochs):
-        writer.add_scalars("Accuracy", {
-            "train_acc": np.mean(all_results['train_acc'][:, i]),
-            "val_acc": np.mean(all_results['val_acc'][:, i]),
-        }, i)
+def make_loader(
+    annotations: pd.DataFrame,
+    args: argparse.Namespace,
+    shuffle: bool,
+) -> DataLoader:
+    dataset = AudioVisualDataset(annotations, args.audio_dir, args.visual_dir)
+    return DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        num_workers=args.num_workers,
+        pin_memory=args.device.startswith("cuda"),
+        collate_fn=collate_audio_visual,
+    )
 
 
-def FSL_training(args):
-    print("start {} way {} shot training of {}  ".format(args.N_way, args.K_shot, args.model_name))
+def load_source_weights(model: nn.Module, path: Path) -> None:
+    checkpoint = torch.load(path, map_location="cpu")
+    state_dict = checkpoint.get("model", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+    classifier_prefixes = (
+        "fusion_classification_head.fc_action.",
+        "fusion_classification_net.fc_action.",
+    )
+    state_dict = {
+        name: value
+        for name, value in state_dict.items()
+        if not name.startswith(classifier_prefixes)
+    }
+    incompatible = model.load_state_dict(state_dict, strict=False)
+    allowed_classifier_prefixes = (
+        "fusion_classification_head.fc_action.",
+        "fusion_classification_net.fc_action.",
+    )
+    missing = [
+        name
+        for name in incompatible.missing_keys
+        if not name.startswith(allowed_classifier_prefixes)
+    ]
+    unexpected = [
+        name
+        for name in incompatible.unexpected_keys
+        if not name.startswith(allowed_classifier_prefixes)
+    ]
+    if missing or unexpected:
+        raise RuntimeError(
+            "The source checkpoint does not match this SMP configuration. "
+            f"Missing keys: {missing}; unexpected keys: {unexpected}. "
+            "Check the adapter dimension, begin layer, adapter location, and "
+            "latent-attention locations."
+        )
 
-    fewshot_csv = os.path.join(args.FS_AVC_root, 'fewshot.csv')
-    fewshot_test_csv = os.path.join(args.FS_AVC_root, 'fewshot_test.csv')
 
-    round_train_acc_list = []
-    round_valid_acc_list = []
-    model_record = {}
+def run_session(
+    args: argparse.Namespace,
+    support: pd.DataFrame,
+    query: pd.DataFrame,
+    device: torch.device,
+) -> dict:
+    model = SMPModel(
+        num_classes=args.n_way,
+        adapter_dim=args.adapter_dim,
+        begin_layer=args.begin_layer,
+        adapter_location=args.adapter_location,
+        attention_locations=args.attention_locations,
+        tuning=args.tuning,
+        vit_model=args.vit_model,
+        vit_checkpoint=args.vit_checkpoint,
+        text_model=args.text_model,
+    )
+    load_source_weights(model, args.pretrained_model)
+    model.to(device)
 
-    if args.pretrained_model != '':
-        pretrained_paras = torch.load(args.pretrained_model, map_location=opts.device)
+    train_loader = make_loader(support, args, shuffle=True)
+    prototype_loader = make_loader(support, args, shuffle=False)
+    query_loader = make_loader(query, args, shuffle=False)
+    optimizer = torch.optim.Adam(
+        (parameter for parameter in model.parameters() if parameter.requires_grad),
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
+    )
+    criterion = nn.CrossEntropyLoss()
+    prototypes = estimate_prototypes(model, prototype_loader, args.n_way, device)
 
-        pretrained_paras.pop('fusion_classification_head.fc_action.weight')
-        pretrained_paras.pop('fusion_classification_head.fc_action.bias')
+    best_accuracy = float("-inf")
+    best_epoch = 0
+    history = []
+    for epoch in range(1, args.epochs + 1):
+        train_metrics = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            prototypes,
+            device,
+            args.alpha,
+        )
+        prototypes = estimate_prototypes(
+            model,
+            prototype_loader,
+            args.n_way,
+            device,
+            previous=prototypes,
+            momentum=args.prototype_momentum,
+        )
+        query_metrics = evaluate(model, query_loader, criterion, device)
+        history.append(
+            {"epoch": epoch, "train": train_metrics, "query": query_metrics}
+        )
+        if query_metrics["accuracy"] > best_accuracy:
+            best_accuracy = query_metrics["accuracy"]
+            best_epoch = epoch
 
-    else:
-        print("no pretrained paras provided, plz check")
-        pretrained_paras = None
+    del model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return {
+        "best_epoch": best_epoch,
+        "best_query_accuracy": best_accuracy,
+        "history": history,
+    }
 
-    caption = 'caption'
-    if args.dataset == 'VGG' or args.dataset == 'Kinetics':
-        caption = 'VGG_caption'
 
-    for sample_round in range(args.total_rounds):
-        sample_train_acc_list = []
-        sample_valid_acc_list = []
-        sample_record = {}
+def main(args: argparse.Namespace) -> None:
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    seed_everything(args.seed)
+    device = resolve_device(args.device)
+    if not args.pretrained_model.is_file():
+        raise FileNotFoundError(f"Checkpoint not found: {args.pretrained_model}")
+    support_csv = args.few_shot_root / "fewshot.csv"
+    query_csv = args.few_shot_root / "fewshot_test.csv"
+    support_pool = read_annotations(support_csv)
+    query_pool = read_annotations(query_csv)
+    rng = np.random.default_rng(args.seed)
 
-        for sample_time in range(args.sample_times):
-            print("\tStarted Training for sample times {}/{} in round {}/{}".format(sample_time, args.sample_times,
-                                                                                    sample_round, args.total_rounds))
-            if sample_time == 0:
-                N_way = args.N_way
-            else:
-                N_way = random_select_class
+    session_results = []
+    for class_round in range(args.class_rounds):
+        selected_classes = sample_classes(support_pool, args.n_way, rng)
+        for support_draw in range(args.support_draws):
+            support, query, class_map = sample_few_shot_task(
+                support_pool,
+                query_pool,
+                selected_classes,
+                args.k_shot,
+                rng,
+            )
+            print(
+                f"Class round {class_round + 1}/{args.class_rounds}, "
+                f"support draw {support_draw + 1}/{args.support_draws}: "
+                f"classes={selected_classes}"
+            )
+            result = run_session(args, support, query, device)
+            result.update(
+                {
+                    "class_round": class_round + 1,
+                    "support_draw": support_draw + 1,
+                    "selected_classes": selected_classes,
+                    "class_map": class_map,
+                }
+            )
+            session_results.append(result)
+            print(f"  best query accuracy: {result['best_query_accuracy']:.2f}%")
 
-            selected_class_train_df, selected_class_test_df, random_select_class = FSL_sample_formatting(
-                fewshot_csv, fewshot_test_csv, N_way, args.K_shot, caption)
-
-            if sample_time == 0:
-                class_map_dict = get_class_map(random_select_class, args.N_way)
-
-            sample_res = train_one_sample(args, selected_class_train_df, selected_class_test_df, pretrained_paras,
-                                          class_map_dict)
-            sample_train_acc_list.append(sample_res[0])
-            sample_valid_acc_list.append(sample_res[1])
-
-            sample_record[sample_time] = sample_res[2]
-
-        print('In round {}, the selected target class is {}'.format(sample_round, random_select_class))
-        print('average best training accuracy is {}, min is {}, max is {}'.format(
-            round(np.mean(sample_train_acc_list), 2), round(np.min(sample_train_acc_list), 2),
-            round(np.max(sample_train_acc_list), 2)))
-        print('average best validation accuracy is {}, min is {}, max is {}'.format(
-            round(np.mean(sample_valid_acc_list), 2), round(np.min(sample_valid_acc_list), 2),
-            round(np.max(sample_valid_acc_list), 2)))
-        round_train_acc_list.append(np.mean(sample_train_acc_list))
-        round_valid_acc_list.append(np.mean(sample_valid_acc_list))
-
-        model_record[str(random_select_class)] = sample_record
-
-    print("************************************************************")
-    print("Model Results:")
-    print('For {} model, the average training acc is {}, test acc is {}'.format(
-        args.model_name, round(np.mean(round_train_acc_list), 2), round(np.mean(round_valid_acc_list), 2)))
-    print('the max test acc is {}, min is {}, std is {}'.format(round(np.max(round_valid_acc_list), 2),
-                                                                round(np.min(round_valid_acc_list), 2),
-                                                                round(np.std(round_valid_acc_list), 2))
-          )
-    draw_plot(args, model_record)
+    accuracies = np.asarray(
+        [result["best_query_accuracy"] for result in session_results], dtype=float
+    )
+    summary = {
+        "dataset": args.dataset,
+        "n_way": args.n_way,
+        "k_shot": args.k_shot,
+        "num_sessions": len(session_results),
+        "mean_accuracy": float(accuracies.mean()),
+        "standard_deviation": float(accuracies.std()),
+        "minimum_accuracy": float(accuracies.min()),
+        "maximum_accuracy": float(accuracies.max()),
+        "sessions": session_results,
+    }
+    output_path = args.output_dir / f"{args.experiment_name}.json"
+    save_json(output_path, summary)
+    print(
+        f"Mean accuracy: {summary['mean_accuracy']:.2f}% +/- "
+        f"{summary['standard_deviation']:.2f} over {len(session_results)} sessions"
+    )
+    print(f"Results: {output_path}")
 
 
 if __name__ == "__main__":
-    opts = parse_options()
-    FSL_training(args=opts)
+    main(parse_args())
