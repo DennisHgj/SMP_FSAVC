@@ -1,6 +1,6 @@
 # 少样本音视频分类的语义调制提示学习
 
-[English](README.md) | [IEEE Xplore 论文](https://ieeexplore.ieee.org/abstract/document/11352954) | [DOI](https://doi.org/10.1109/TASLPRO.2026.3654246)
+[English](README.md) | [Hugging Face 数据集](https://huggingface.co/datasets/Zephyrus-H/SMP_FSAVC_Dataset) | [IEEE Xplore 论文](https://ieeexplore.ieee.org/abstract/document/11352954) | [DOI](https://doi.org/10.1109/TASLPRO.2026.3654246)
 
 本仓库是论文 **Semantic Modulated Prompting for Few-Shot Audio-Visual
 Classification** 的官方 PyTorch 实现。论文发表于 *IEEE Transactions on
@@ -80,9 +80,11 @@ VGGSound100 样例中的第四列用于保留可读类别名称，不会送入 S
 `fewshot.csv` 和 `fewshot_test.csv`。源域标签必须使用对应数据集从 0 开始的
 标签空间；只有在缺失类别策略允许时，标签空间中才可以存在空类别。
 
-论文使用的完整 CSV 划分和 mPLUG-2 captions 单独发布在
-[SMP_FSAVC_Dataset 数据仓库](https://github.com/DennisHgj/SMP_FSAVC_Dataset)。
-该仓库不重新发布原始媒体；请从上游数据集获取媒体并遵守其许可和使用条款。
+论文使用的完整 CSV 划分和 mPLUG-2 captions 已发布到
+[Hugging Face 数据集](https://huggingface.co/datasets/Zephyrus-H/SMP_FSAVC_Dataset)，
+支持 Dataset Viewer 在线预览；同时保留
+[GitHub 数据仓库镜像](https://github.com/DennisHgj/SMP_FSAVC_Dataset)。该仓库不重新
+发布原始媒体；请从上游数据集获取媒体并遵守其许可和使用条款。
 
 当前 VGGSound100 划分保留 `0..59` 的 60 类源域标签空间，但标签 `14` 因无法
 获取原始视频而没有样本。预训练默认给出一次警告，并保留该类的全零原型，以

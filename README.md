@@ -4,6 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1%2B-EE4C2C.svg)](https://pytorch.org/)
 [![Paper](https://img.shields.io/badge/Paper-IEEE%20TASLP-00629B.svg)](https://ieeexplore.ieee.org/abstract/document/11352954)
+[![Dataset](https://img.shields.io/badge/Dataset-Hugging%20Face-FFD21E.svg)](https://huggingface.co/datasets/Zephyrus-H/SMP_FSAVC_Dataset)
 
 Official PyTorch implementation of **Semantic Modulated Prompting (SMP)** for
 few-shot audio-visual classification (FS-AVC).
@@ -145,8 +146,10 @@ and keeps an all-zero prototype for this class, matching the research code.
 Use `--missing-class-policy error` to reject any split with an empty source
 class instead.
 
-The exact split CSVs and mPLUG-2 captions used in the paper are released in the
-[SMP_FSAVC_Dataset repository](https://github.com/DennisHgj/SMP_FSAVC_Dataset).
+The exact split CSVs and mPLUG-2 captions used in the paper are available on
+[Hugging Face](https://huggingface.co/datasets/Zephyrus-H/SMP_FSAVC_Dataset)
+with Dataset Viewer support, and are mirrored in the
+[GitHub dataset repository](https://github.com/DennisHgj/SMP_FSAVC_Dataset).
 Source media are not redistributed; obtain them from the upstream datasets and
 follow their licenses and usage terms. For the static-prompt setting, every
 sample uses the identical literal string `a video of [label]`.
