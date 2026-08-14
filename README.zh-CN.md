@@ -1,9 +1,10 @@
 # 少样本音视频分类的语义调制提示学习
 
-[English](README.md)
+[English](README.md) | [IEEE Xplore 论文](https://ieeexplore.ieee.org/abstract/document/11352954) | [DOI](https://doi.org/10.1109/TASLPRO.2026.3654246)
 
 本仓库是论文 **Semantic Modulated Prompting for Few-Shot Audio-Visual
-Classification** 的官方 PyTorch 实现。
+Classification** 的官方 PyTorch 实现。论文发表于 *IEEE Transactions on
+Audio, Speech and Language Processing*，第 34 卷，第 723-736 页，2026 年。
 
 ## 方法简介
 
@@ -18,6 +19,32 @@ Semantic Modulated Prompting（SMP）面向少样本音视频分类中的过拟�
 `MODE=aux_fusion_layer` 和 `modulation_type=6`；其他消融和对比实验分支没有
 包含在本仓库中。
 
+## 方法框架
+
+![包含 P-AVeL 和 P-PR 的 SMP 总体框架](assets/smp_overview.png)
+
+*P-AVeL 与 ViT 的 MLP 层并行，通过提示引导的潜在注意力实现三模态交互；
+P-PR 使用语义原型调整音频和视频原型，并动态正则化较弱模态。*
+
+## 主要实验结果
+
+论文采用 5-way 少样本分类协议，并报告 25 次测试会话的平均准确率。使用 VLM
+生成的语义提示时，SMP 在 AVE、VGGSound100 和 Kinetics-Sounds 的 1-shot
+设置下分别达到 **85.74%**、**80.23%** 和 **74.37%**；对应的 20-shot 结果为
+**96.46%**、**94.29%** 和 **85.92%**。SMP 在论文报告的全部设置中取得最佳
+结果，同时仅包含 2.56M 个可训练参数。
+
+![SMP 与现有方法在三个数据集上的性能对比](assets/main_results.png)
+
+*论文 Table II 的主要对比结果。表中数值为平均分类准确率（%），上标为 25 次
+测试会话的标准差。*
+
+下图比较了 LAVISH（左）和 SMP（右）在随机 5-way 1-shot 任务上的 t-SNE
+结果：上行为 VGGSound100，下行为 Kinetics-Sounds。SMP 得到了更清晰的类别
+聚类和决策边界。
+
+![LAVISH 与 SMP 的 t-SNE 可视化对比](assets/tsne_visualization.png)
+
 ## 安装
 
 ```bash
@@ -30,12 +57,12 @@ pip install -r requirements.txt
 ```
 
 默认会下载 `vit_base_patch16_224.augreg_in21k` 和
-`openai/clip-vit-large-patch14`。离线运行时，可以通过 `--vit-checkpoint`
+`openai/clip-vit-large-patch14`。离线运行时，可通过 `--vit-checkpoint`
 指定本地 ViT 权重，通过 `--text-model` 指定本地 CLIP Hugging Face 目录。
 
 ## 数据格式
 
-每个无表头 CSV 文件每行包含：
+每个无表头 CSV 文件的每行包含：
 
 ```text
 视频片段ID,整数类别,语义提示文本
@@ -92,4 +119,22 @@ python TargetFS-AVC.py \
 python -m unittest discover -s tests -v
 ```
 
-引用信息、数据集划分、复现实验注意事项和许可证请参见[英文主页](README.md)。
+## 引用
+
+如果本项目对你的研究有帮助，请引用[正式发表的论文](https://ieeexplore.ieee.org/abstract/document/11352954)：
+
+```bibtex
+@ARTICLE{11352954,
+  author={Huang, Guanjie and Cui, Yawen and Tsang, Danny H.K. and Wang, Wenwu and Liu, Li},
+  journal={IEEE Transactions on Audio, Speech and Language Processing},
+  title={Semantic Modulated Prompting for Few-Shot Audio-Visual Classification},
+  year={2026},
+  volume={34},
+  pages={723-736},
+  doi={10.1109/TASLPRO.2026.3654246}
+}
+```
+
+## 许可证
+
+本项目使用 [GNU General Public License v3.0](LICENSE)。

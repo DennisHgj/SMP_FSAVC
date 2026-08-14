@@ -3,9 +3,14 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1%2B-EE4C2C.svg)](https://pytorch.org/)
+[![Paper](https://img.shields.io/badge/Paper-IEEE%20TASLP-00629B.svg)](https://ieeexplore.ieee.org/abstract/document/11352954)
 
 Official PyTorch implementation of **Semantic Modulated Prompting (SMP)** for
 few-shot audio-visual classification (FS-AVC).
+
+Published in *IEEE Transactions on Audio, Speech and Language Processing*,
+vol. 34, pp. 723-736, 2026. [[IEEE Xplore](https://ieeexplore.ieee.org/abstract/document/11352954)]
+[[DOI](https://doi.org/10.1109/TASLPRO.2026.3654246)]
 
 [中文说明](README.zh-CN.md)
 
@@ -25,6 +30,34 @@ This release contains only the paper configuration. In the original research
 workspace, that configuration was selected by `MODE=aux_fusion_layer` and
 `modulation_type=6`; those experiment switches and unused ablation branches
 have intentionally been removed here.
+
+## Framework
+
+![Overview of the SMP framework, including P-AVeL and P-PR](assets/smp_overview.png)
+
+*SMP inserts P-AVeL adapters in parallel with the ViT MLP layers for
+prompt-guided tri-modal interaction. P-PR then tunes audio and visual
+prototypes with semantic prototypes and regularizes the weaker modality.*
+
+## Main results
+
+Experiments use 5-way few-shot classification and report average accuracy over
+25 test sessions. With VLM-generated semantic prompts, SMP reaches **85.74%**,
+**80.23%**, and **74.37%** in the 1-shot setting on AVE, VGGSound100, and
+Kinetics-Sounds, respectively. The corresponding 20-shot results are
+**96.46%**, **94.29%**, and **85.92%**. SMP leads all settings reported in the
+paper while using 2.56M trainable parameters.
+
+![Comparison with existing methods on AVE, VGGSound100, and Kinetics-Sounds](assets/main_results.png)
+
+*Main comparison from Table II. Values are mean classification accuracy (%);
+superscripts denote the standard deviation across the 25 sessions.*
+
+The t-SNE visualizations below compare LAVISH (left) with SMP (right) on
+randomly selected 5-way 1-shot tasks from VGGSound100 (top) and
+Kinetics-Sounds (bottom). SMP produces more clearly separated class clusters.
+
+![t-SNE comparison between LAVISH and SMP](assets/tsne_visualization.png)
 
 ## Repository layout
 
@@ -178,15 +211,18 @@ the datasets and pretrained encoder weights.
 
 ## Citation
 
-If this work is useful in your research, please cite the manuscript. Update
-the venue fields when the final bibliographic record becomes available.
+If this work is useful in your research, please cite the published article
+([IEEE Xplore](https://ieeexplore.ieee.org/abstract/document/11352954)).
 
 ```bibtex
-@article{huang2026semantic,
-  title   = {Semantic Modulated Prompting for Few-Shot Audio-Visual Classification},
-  author  = {Huang, Guanjie and Cui, Yawen and Tsang, Danny Hin Kwok and Wang, Wenwu and Liu, Li},
-  year    = {2026},
-  note    = {Manuscript}
+@ARTICLE{11352954,
+  author={Huang, Guanjie and Cui, Yawen and Tsang, Danny H.K. and Wang, Wenwu and Liu, Li},
+  journal={IEEE Transactions on Audio, Speech and Language Processing},
+  title={Semantic Modulated Prompting for Few-Shot Audio-Visual Classification},
+  year={2026},
+  volume={34},
+  pages={723-736},
+  doi={10.1109/TASLPRO.2026.3654246}
 }
 ```
 
