@@ -25,6 +25,26 @@ class PrototypeTests(unittest.TestCase):
         distances = pairwise_euclidean(torch.tensor([[1.0, 1.0]]), prototypes)
         torch.testing.assert_close(distances, torch.tensor([[0.0, 3.1622777]]))
 
+    def test_missing_classes_are_strict_by_default(self):
+        embeddings = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+        labels = torch.tensor([0, 2])
+        with self.assertRaisesRegex(ValueError, r"classes: \[1\]"):
+            class_prototypes(embeddings, labels, num_classes=3)
+
+    def test_missing_classes_can_keep_zero_prototypes(self):
+        embeddings = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+        labels = torch.tensor([0, 2])
+        prototypes = class_prototypes(
+            embeddings,
+            labels,
+            num_classes=3,
+            allow_missing_classes=True,
+        )
+        torch.testing.assert_close(
+            prototypes,
+            torch.tensor([[1.0, 2.0], [0.0, 0.0], [3.0, 4.0]]),
+        )
+
     def test_prompt_regularization_is_finite(self):
         prototype_set = PrototypeSet(
             audio=torch.tensor([[1.0, 0.0], [0.0, 1.0]]),

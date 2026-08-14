@@ -12,7 +12,14 @@ from torchvision import transforms
 
 
 class AudioVisualDataset(Dataset):
-    """Load a mel spectrogram, uniformly sampled frames, prompt, and label."""
+    """Load audio, frames, a semantic prompt, and a label from CSV rows.
+
+    The first three columns are ``clip_id``, integer ``label``, and
+    ``semantic_prompt``. The prompt may be a VLM-generated caption or the same
+    fixed literal string ``a video of [label]`` for every sample; ``[label]``
+    is not replaced with a class name. An optional fourth class-name column,
+    used by VGGSound100 annotations, is accepted but not fed to SMP.
+    """
 
     def __init__(
         self,
@@ -30,7 +37,8 @@ class AudioVisualDataset(Dataset):
             self.annotations = annotations.reset_index(drop=True).copy()
         if self.annotations.shape[1] < 3:
             raise ValueError(
-                "Annotations require three columns: clip_id, label, semantic_prompt"
+                "Annotations require at least three columns: "
+                "clip_id, label, semantic_prompt[, class_name]"
             )
 
         self.audio_dir = Path(audio_dir).expanduser()
@@ -103,5 +111,7 @@ class AudioVisualDataset(Dataset):
         row = self.annotations.iloc[index]
         clip_id = str(row.iloc[0])
         label = int(row.iloc[1])
+        # Column 2 is deliberately consumed verbatim: users can provide either
+        # generated captions or precomputed static prompts in the same schema.
         prompt = str(row.iloc[2])
         return self._load_audio(clip_id), self._load_frames(clip_id), prompt, label

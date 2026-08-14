@@ -15,10 +15,6 @@ Semantic Modulated Prompting（SMP）面向少样本音视频分类中的过拟�
   提示引导音频和视频 token 的潜在注意力与融合。
 - **P-PR**：利用文本原型动态调整音频和视频原型，再对较弱模态施加原型正则。
 
-本公开版本只保留论文正式配置。在原测试代码中，它对应
-`MODE=aux_fusion_layer` 和 `modulation_type=6`；其他消融和对比实验分支没有
-包含在本仓库中。
-
 ## 方法框架
 
 ![包含 P-AVeL 和 P-PR 的 SMP 总体框架](assets/smp_overview.png)
@@ -62,11 +58,16 @@ pip install -r requirements.txt
 
 ## 数据格式
 
-每个无表头 CSV 文件的每行包含：
+每个无表头 CSV 文件至少包含三列，也可以包含可选的类别名称列：
 
 ```text
-视频片段ID,整数类别,语义提示文本
+视频片段ID,整数类别,语义提示文本[,类别名称]
 ```
+
+第三列会被原样送入文本编码器，既可以使用 [mPLUG-2](https://github.com/X-PLUG/mPLUG-2)
+等 VLM 生成的 caption，也可以让所有样本都使用完全相同的静态提示
+`a video of [label]`。其中 `[label]` 是不变的字面文本，不会替换成类别名称。
+VGGSound100 样例中的第四列用于保留可读类别名称，不会送入 SMP 模型。
 
 媒体文件路径为：
 
@@ -76,7 +77,17 @@ pip install -r requirements.txt
 ```
 
 源域目录需包含 `pretrain.csv` 和 `pretrain_test.csv`；目标少样本目录需包含
-`fewshot.csv` 和 `fewshot_test.csv`。源域标签必须从 0 开始且连续。
+`fewshot.csv` 和 `fewshot_test.csv`。源域标签必须使用对应数据集从 0 开始的
+标签空间；只有在缺失类别策略允许时，标签空间中才可以存在空类别。
+
+论文使用的完整 CSV 划分和 mPLUG-2 captions 单独发布在
+[SMP_FSAVC_Dataset 数据仓库](https://github.com/DennisHgj/SMP_FSAVC_Dataset)。
+该仓库不重新发布原始媒体；请从上游数据集获取媒体并遵守其许可和使用条款。
+
+当前 VGGSound100 划分保留 `0..59` 的 60 类源域标签空间，但标签 `14` 因无法
+获取原始视频而没有样本。预训练默认给出一次警告，并保留该类的全零原型，以
+复现原研究代码的行为。如需严格拒绝空类别，可使用
+`--missing-class-policy error`。
 
 ## 源域预训练
 

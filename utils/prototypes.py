@@ -22,18 +22,27 @@ def class_prototypes(
     embeddings: torch.Tensor,
     labels: torch.Tensor,
     num_classes: int,
+    allow_missing_classes: bool = False,
 ) -> torch.Tensor:
-    """Return class means and reject annotation sets with missing classes."""
+    """Return class means, optionally retaining zero vectors for empty classes."""
     if embeddings.ndim != 2:
         raise ValueError("embeddings must have shape [samples, dimensions]")
     labels = labels.to(device=embeddings.device, dtype=torch.long)
+    invalid = labels[(labels < 0) | (labels >= num_classes)].unique().tolist()
+    if invalid:
+        raise ValueError(
+            f"Labels must be in [0, {num_classes - 1}]; found: {invalid}"
+        )
     totals = embeddings.new_zeros((num_classes, embeddings.shape[1]))
     totals.index_add_(0, labels, embeddings)
     counts = torch.bincount(labels, minlength=num_classes).to(embeddings.dtype)
     missing = torch.nonzero(counts == 0, as_tuple=False).flatten().tolist()
-    if missing:
+    if missing and not allow_missing_classes:
         raise ValueError(f"No samples were available for classes: {missing}")
-    return totals / counts.unsqueeze(1)
+    # The legacy VGGSound100 split has no obtainable media for source label 14.
+    # Clamping preserves an all-zero prototype for that class, matching the
+    # research implementation without introducing a division by zero.
+    return totals / counts.clamp_min(1).unsqueeze(1)
 
 
 @torch.no_grad()
@@ -44,6 +53,7 @@ def estimate_prototypes(
     device: torch.device,
     previous: PrototypeSet | None = None,
     momentum: float = 0.0,
+    allow_missing_classes: bool = False,
 ) -> PrototypeSet:
     """Estimate audio, visual, and prompt prototypes over a data loader."""
     if not 0.0 <= momentum < 1.0:
@@ -67,9 +77,24 @@ def estimate_prototypes(
 
     all_labels = torch.cat(labels)
     current = PrototypeSet(
-        class_prototypes(torch.cat(audio_embeddings), all_labels, num_classes),
-        class_prototypes(torch.cat(visual_embeddings), all_labels, num_classes),
-        class_prototypes(torch.cat(text_embeddings), all_labels, num_classes),
+        class_prototypes(
+            torch.cat(audio_embeddings),
+            all_labels,
+            num_classes,
+            allow_missing_classes=allow_missing_classes,
+        ),
+        class_prototypes(
+            torch.cat(visual_embeddings),
+            all_labels,
+            num_classes,
+            allow_missing_classes=allow_missing_classes,
+        ),
+        class_prototypes(
+            torch.cat(text_embeddings),
+            all_labels,
+            num_classes,
+            allow_missing_classes=allow_missing_classes,
+        ),
     )
     if previous is None or momentum == 0.0:
         return current

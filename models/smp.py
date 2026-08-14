@@ -94,6 +94,12 @@ class SMPModel(nn.Module):
         self.v1.patch_embed.proj.requires_grad_(True)
         self.v1.pos_embed.requires_grad_(True)
         self.v1.cls_token.requires_grad_(True)
+        # These parameters were trainable in the paper experiments even though
+        # the visual patch projection and Transformer weights were frozen.
+        self.v2.pos_embed.requires_grad_(True)
+        self.v2.cls_token.requires_grad_(True)
+        self.v1.norm.requires_grad_(True)
+        self.v2.norm.requires_grad_(True)
 
         if tuning == "all":
             self.v1.requires_grad_(True)

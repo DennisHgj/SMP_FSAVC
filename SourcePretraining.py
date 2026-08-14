@@ -2,8 +2,10 @@
 
 import argparse
 import os
+import warnings
 from pathlib import Path
 
+import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -49,6 +51,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--prototype-momentum", type=float, default=0.0)
+    parser.add_argument(
+        "--missing-class-policy",
+        choices=("allow", "error"),
+        default="allow",
+        help=(
+            "How to handle source labels with no obtainable samples. "
+            "'allow' keeps a zero prototype, matching the research code."
+        ),
+    )
 
     parser.add_argument("--adapter-dim", type=int, default=16)
     parser.add_argument("--begin-layer", type=int, default=4)
@@ -91,6 +102,65 @@ def make_data_loader(
     )
 
 
+def validate_source_label_space(
+    train_csv: Path,
+    validation_csv: Path,
+    num_classes: int,
+    missing_class_policy: str,
+) -> list[int]:
+    """Validate source labels before model loading or prototype extraction."""
+
+    label_sets = {}
+    for split_name, path in (
+        ("training", train_csv),
+        ("validation", validation_csv),
+    ):
+        frame = pd.read_csv(path, header=None)
+        if frame.shape[1] < 3:
+            raise ValueError(
+                f"{path} requires at least three columns: "
+                "clip_id, label, semantic_prompt"
+            )
+        numeric = pd.to_numeric(frame.iloc[:, 1], errors="raise")
+        if not numeric.eq(numeric.astype("int64")).all():
+            raise ValueError(f"{path} contains non-integer class labels")
+        labels = {int(value) for value in numeric}
+        invalid = sorted(
+            label for label in labels if not 0 <= label < num_classes
+        )
+        if invalid:
+            raise ValueError(
+                f"{split_name.capitalize()} labels must be in "
+                f"[0, {num_classes - 1}]; found: {invalid}"
+            )
+        label_sets[split_name] = labels
+
+    missing = sorted(set(range(num_classes)) - label_sets["training"])
+    if missing:
+        message = (
+            f"Source training annotations contain no samples for classes {missing}."
+        )
+        if missing_class_policy == "error":
+            raise ValueError(message)
+        warnings.warn(
+            message
+            + " Their audio, visual, and text prototypes will remain zero to "
+            "match the legacy research behavior.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    validation_only = sorted(label_sets["validation"] - label_sets["training"])
+    if validation_only:
+        warnings.warn(
+            "Validation annotations include classes absent from training: "
+            f"{validation_only}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return missing
+
+
 def main(args: argparse.Namespace) -> None:
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     seed_everything(args.seed)
@@ -104,6 +174,12 @@ def main(args: argparse.Namespace) -> None:
     for path in (train_csv, validation_csv):
         if not path.is_file():
             raise FileNotFoundError(f"Required annotation file not found: {path}")
+    missing_source_classes = validate_source_label_space(
+        train_csv,
+        validation_csv,
+        num_classes,
+        args.missing_class_policy,
+    )
 
     train_loader = make_data_loader(train_csv, args, shuffle=True)
     prototype_loader = make_data_loader(train_csv, args, shuffle=False)
@@ -133,7 +209,11 @@ def main(args: argparse.Namespace) -> None:
     writer = SummaryWriter(log_dir=str(args.log_dir / args.experiment_name))
 
     prototypes = estimate_prototypes(
-        model, prototype_loader, num_classes, device
+        model,
+        prototype_loader,
+        num_classes,
+        device,
+        allow_missing_classes=args.missing_class_policy == "allow",
     )
     best_accuracy = float("-inf")
     history = []
@@ -154,6 +234,7 @@ def main(args: argparse.Namespace) -> None:
             device,
             previous=prototypes,
             momentum=args.prototype_momentum,
+            allow_missing_classes=args.missing_class_policy == "allow",
         )
         validation_metrics = evaluate(model, validation_loader, criterion, device)
         record = {
@@ -187,6 +268,10 @@ def main(args: argparse.Namespace) -> None:
                         "vit_model": args.vit_model,
                         "text_model": args.text_model,
                     },
+                    "source_label_config": {
+                        "missing_class_policy": args.missing_class_policy,
+                        "missing_source_classes": missing_source_classes,
+                    },
                 },
                 checkpoint_path,
             )
@@ -197,6 +282,8 @@ def main(args: argparse.Namespace) -> None:
         {
             "best_validation_accuracy": best_accuracy,
             "checkpoint": str(checkpoint_path),
+            "missing_class_policy": args.missing_class_policy,
+            "missing_source_classes": missing_source_classes,
             "history": history,
         },
     )
