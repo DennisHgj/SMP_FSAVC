@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use SMP-FSAVC, please cite the manuscript below."
+title: "SMP-FSAVC: Semantic Modulated Prompting for Few-Shot Audio-Visual Classification"
+type: software
+license: GPL-3.0-only
+repository-code: "https://github.com/DennisHgj/SMP_FSAVC"
+authors:
+  - family-names: Huang
+    given-names: Guanjie
+  - family-names: Cui
+    given-names: Yawen
+  - family-names: Tsang
+    given-names: Danny Hin Kwok
+  - family-names: Wang
+    given-names: Wenwu
+  - family-names: Liu
+    given-names: Li
+preferred-citation:
+  type: article
+  title: "Semantic Modulated Prompting for Few-Shot Audio-Visual Classification"
+  year: 2026
+  authors:
+    - family-names: Huang
+      given-names: Guanjie
+    - family-names: Cui
+      given-names: Yawen
+    - family-names: Tsang
+      given-names: Danny Hin Kwok
+    - family-names: Wang
+      given-names: Wenwu
+    - family-names: Liu
+      given-names: Li

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Environments and editors
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Training artifacts
+checkpoints/
+results/
+runs/
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+
+# OS files
+.DS_Store
+Thumbs.db
