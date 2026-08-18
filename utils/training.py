@@ -1,5 +1,7 @@
 """Training and evaluation loops for the paper configuration of SMP."""
 
+from __future__ import annotations
+
 from collections.abc import Iterable
 
 import torch

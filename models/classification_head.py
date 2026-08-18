@@ -1,5 +1,7 @@
 """Late-fusion classification head used by SMP."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 
 import torch

@@ -1,8 +1,8 @@
 # Semantic Modulated Prompting for Few-Shot Audio-Visual Classification
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.1%2B-EE4C2C.svg)](https://pytorch.org/)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C.svg)](https://pytorch.org/)
 [![Paper](https://img.shields.io/badge/Paper-IEEE%20TASLP-00629B.svg)](https://ieeexplore.ieee.org/abstract/document/11352954)
 [![Dataset](https://img.shields.io/badge/Dataset-Hugging%20Face-FFD21E.svg)](https://huggingface.co/datasets/Zephyrus-H/SMP_FSAVC_Dataset)
 
@@ -79,7 +79,7 @@ Kinetics-Sounds (bottom). SMP produces more clearly separated class clusters.
 
 ## Installation
 
-Python 3.9 or newer is recommended.
+Python 3.8 or newer and PyTorch 2.0 or newer are supported.
 
 ```bash
 git clone https://github.com/DennisHgj/SMP_FSAVC.git

@@ -1,5 +1,7 @@
 """Complete Semantic Modulated Prompting model."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import timm
@@ -14,6 +16,57 @@ from .smp_fusion_block import SMPFusionBlock
 
 DEFAULT_VIT_MODEL = "vit_base_patch16_224.augreg_in21k"
 DEFAULT_TEXT_MODEL = "openai/clip-vit-large-patch14"
+
+
+def load_vit_checkpoint(model: nn.Module, checkpoint_path: str | Path) -> None:
+    """Load a ViT backbone while discarding only its pretraining classifier.
+
+    Timm's ``checkpoint_path`` option loads strictly. That fails when SMP
+    creates a feature-only ViT (``num_classes=0``) from a standard ImageNet
+    checkpoint containing ``head.weight`` and ``head.bias``. Validate every
+    backbone tensor explicitly so that unrelated architecture mismatches are
+    still reported instead of being silently ignored.
+    """
+
+    checkpoint = torch.load(Path(checkpoint_path).expanduser(), map_location="cpu")
+    if not isinstance(checkpoint, dict):
+        raise RuntimeError("The ViT checkpoint must contain a state dictionary")
+    for key in ("state_dict_ema", "state_dict", "model"):
+        candidate = checkpoint.get(key)
+        if isinstance(candidate, dict):
+            checkpoint = candidate
+            break
+
+    state_dict = {}
+    for name, value in checkpoint.items():
+        normalized_name = name[7:] if name.startswith("module.") else name
+        state_dict[normalized_name] = value
+
+    model_state = model.state_dict()
+    classifier_prefixes = ("head.", "head_dist.")
+    unexpected = sorted(
+        name
+        for name in state_dict
+        if name not in model_state and not name.startswith(classifier_prefixes)
+    )
+    mismatched = sorted(
+        name
+        for name, value in state_dict.items()
+        if name in model_state and value.shape != model_state[name].shape
+    )
+    filtered = {
+        name: value
+        for name, value in state_dict.items()
+        if name in model_state and value.shape == model_state[name].shape
+    }
+    missing = sorted(set(model_state) - set(filtered))
+    if missing or unexpected or mismatched:
+        raise RuntimeError(
+            "The ViT checkpoint does not match the requested backbone. "
+            f"Missing keys: {missing}; unexpected keys: {unexpected}; "
+            f"shape mismatches: {mismatched}"
+        )
+    model.load_state_dict(filtered, strict=True)
 
 
 class SMPModel(nn.Module):
@@ -38,11 +91,12 @@ class SMPModel(nn.Module):
             "pretrained": pretrained_backbone and not checkpoint_path,
             "num_classes": 0,
         }
-        if checkpoint_path:
-            create_options["checkpoint_path"] = checkpoint_path
 
         self.v1 = timm.create_model(vit_model, **create_options)
         self.v2 = timm.create_model(vit_model, **create_options)
+        if checkpoint_path:
+            load_vit_checkpoint(self.v1, checkpoint_path)
+            load_vit_checkpoint(self.v2, checkpoint_path)
         self.processor = AutoProcessor.from_pretrained(text_model)
         self.text_model = CLIPModel.from_pretrained(text_model).text_model
 
@@ -153,7 +207,10 @@ class SMPModel(nn.Module):
 
     @staticmethod
     def _attention_mask(mask: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
-        expanded = mask[:, None, None, :].to(dtype=dtype)
+        sequence_length = mask.shape[1]
+        expanded = mask[:, None, None, :].expand(
+            -1, 1, sequence_length, -1
+        ).to(dtype=dtype)
         return (1.0 - expanded) * torch.finfo(dtype).min
 
     @staticmethod

@@ -1,5 +1,7 @@
 """Prompt-refined Audio-Visual efficient Learner (P-AVeL)."""
 
+from __future__ import annotations
+
 import torch
 from torch import nn
 

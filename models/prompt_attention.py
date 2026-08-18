@@ -1,5 +1,7 @@
 """Prompt-guided latent attention from the P-AVeL adapter."""
 
+from __future__ import annotations
+
 import torch
 from torch import nn
 

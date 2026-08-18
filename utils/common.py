@@ -1,5 +1,7 @@
 """Common helpers shared by pretraining and few-shot experiments."""
 
+from __future__ import annotations
+
 import json
 import random
 from pathlib import Path

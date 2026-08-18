@@ -1,10 +1,14 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 import pandas as pd
 import torch
 from torch import nn
 
+from dataloader import AudioVisualDataset
 from models.prompt_attention import PromptGuidedLatentAttention
+from models.smp import SMPModel, load_vit_checkpoint
 from utils.prototypes import (
     PrototypeSet,
     class_prototypes,
@@ -75,6 +79,56 @@ class LatentAttentionTests(unittest.TestCase):
         self.assertEqual(outputs[0].shape, audio.shape)
         self.assertEqual(outputs[1].shape, visual.shape)
         self.assertEqual(outputs[2].shape, text.shape)
+
+
+class CheckpointTests(unittest.TestCase):
+    def test_vit_loader_ignores_only_pretraining_head(self):
+        model = nn.Linear(2, 3, bias=True)
+        checkpoint = {
+            "weight": torch.full_like(model.weight, 2.0),
+            "bias": torch.full_like(model.bias, 3.0),
+            "head.weight": torch.randn(4, 3),
+            "head.bias": torch.randn(4),
+        }
+        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as handle:
+            checkpoint_path = Path(handle.name)
+        try:
+            torch.save(checkpoint, checkpoint_path)
+            load_vit_checkpoint(model, checkpoint_path)
+        finally:
+            checkpoint_path.unlink(missing_ok=True)
+
+        torch.testing.assert_close(model.weight, torch.full_like(model.weight, 2.0))
+        torch.testing.assert_close(model.bias, torch.full_like(model.bias, 3.0))
+
+
+class ModelCompatibilityTests(unittest.TestCase):
+    def test_clip_attention_mask_has_explicit_target_dimension(self):
+        padding_mask = torch.tensor([[1, 1, 0], [1, 0, 0]])
+        attention_mask = SMPModel._attention_mask(padding_mask, torch.float32)
+
+        self.assertEqual(attention_mask.shape, (2, 1, 3, 3))
+        self.assertEqual(float(attention_mask[0, 0, 0, 0]), 0.0)
+        self.assertLess(float(attention_mask[0, 0, 0, 2]), -1e30)
+
+
+class DatasetBehaviorTests(unittest.TestCase):
+    def test_static_prompt_is_consumed_as_literal_text(self):
+        class StubDataset(AudioVisualDataset):
+            def _load_audio(self, clip_id):
+                return torch.zeros(128, 4)
+
+            def _load_frames(self, clip_id):
+                return torch.zeros(8, 3, 224, 224)
+
+        annotations = pd.DataFrame(
+            [["sample", 7, "a video of [label]", "unused class name"]]
+        )
+        dataset = StubDataset(annotations, "unused-audio", "unused-frames")
+
+        _, _, prompt, label = dataset[0]
+        self.assertEqual(prompt, "a video of [label]")
+        self.assertEqual(label, 7)
 
 
 class SamplingTests(unittest.TestCase):
